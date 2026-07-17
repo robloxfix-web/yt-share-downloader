@@ -34,3 +34,13 @@ android {
         jvmTarget = "1.8"
     }
 }
+
+dependencies {
+    implementation("androidx.core:core-ktx:1.12.0")
+    implementation("androidx.appcompat:appcompat:1.6.1")
+    implementation("com.google.android.material:material:1.11.0")
+
+    // YouTube Download Library (النسخة الصحيحة)
+    implementation("com.github.yausername.youtubedl-android:library:0.17.0")
+    implementation("com.github.yausername.youtubedl-android:ffmpeg:0.17.0")
+}
