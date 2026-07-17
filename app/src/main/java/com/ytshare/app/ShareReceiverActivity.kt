@@ -1,9 +1,16 @@
 package com.ytshare.app
 
-import android.content.Intent
+import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Bundle
+import android.os.Environment
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import com.yausername.youtubedl_android.YoutubeDL
+import com.yausername.youtubedl_android.YoutubeDLRequest
+import java.io.File
 
 class ShareReceiverActivity : AppCompatActivity() {
 
@@ -14,14 +21,24 @@ class ShareReceiverActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_share_receiver)
 
-        // Handle shared YouTube link
-        if (intent?.action == Intent.ACTION_SEND && intent.type == "text/plain") {
-            videoUrl = intent.getStringExtra(Intent.EXTRA_TEXT) ?: ""
-            
-            // Detect if it's a playlist
+        if (intent?.action == android.content.Intent.ACTION_SEND) {
+            videoUrl = intent.getStringExtra(android.content.Intent.EXTRA_TEXT) ?: ""
             isPlaylist = videoUrl.contains("list=")
-            
             setupUI()
+        }
+
+        // طلب صلاحيات التخزين
+        checkStoragePermission()
+    }
+
+    private fun checkStoragePermission() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE),
+                100
+            )
         }
     }
 
@@ -29,83 +46,64 @@ class ShareReceiverActivity : AppCompatActivity() {
         val titleText = findViewById<TextView>(R.id.tv_title)
         val urlText = findViewById<TextView>(R.id.tv_url)
         val btnDownload = findViewById<Button>(R.id.btn_download)
-        val btnSelectVideos = findViewById<Button>(R.id.btn_select_videos)
         val qualitySpinner = findViewById<Spinner>(R.id.spinner_quality)
 
-        titleText.text = if (isPlaylist) "تم اكتشاف قائمة تشغيل" else "تم اكتشاف فيديو"
-        urlText.text = videoUrl.take(60) + if (videoUrl.length > 60) "..." else ""
+        titleText.text = if (isPlaylist) "قائمة تشغيل يوتيوب" else "فيديو يوتيوب"
+        urlText.text = videoUrl.take(70) + "..."
 
-        // Quality options
-        val qualities = arrayOf("1080p", "720p", "480p", "360p", "صوت فقط (MP3)")
-        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, qualities)
-        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-        qualitySpinner.adapter = adapter
-
-        if (isPlaylist) {
-            btnSelectVideos.visibility = android.view.View.VISIBLE
-            btnDownload.text = "Download Entire Playlist"
-        } else {
-            btnSelectVideos.visibility = android.view.View.GONE
-            btnDownload.text = "تحميل الفيديو"
-        }
+        val qualities = arrayOf("1080p", "720p", "480p", "صوت فقط")
+        qualitySpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, qualities)
 
         btnDownload.setOnClickListener {
-            val selectedQuality = qualitySpinner.selectedItem.toString()
-            startDownload(selectedQuality)
-        }
-
-        btnSelectVideos.setOnClickListener {
-            showPlaylistSelectionDialog()
+            val quality = qualitySpinner.selectedItem.toString()
+            startRealDownload(quality)
         }
     }
 
-    private fun startDownload(quality: String) {
-            Toast.makeText(this, "جاري التحميل بجودة $quality...", Toast.LENGTH_LONG).show()
-        
-        // Simulate download progress (in real app use WorkManager + yt-dlp)
+    private fun startRealDownload(quality: String) {
         val progressBar = findViewById<ProgressBar>(R.id.progress_bar)
         val statusText = findViewById<TextView>(R.id.tv_status)
-        
+
         progressBar.visibility = android.view.View.VISIBLE
         statusText.visibility = android.view.View.VISIBLE
-        
-        // Fake download simulation
+        statusText.text = "جاري التحميل..."
+
         Thread {
-            for (i in 0..100 step 10) {
-                Thread.sleep(300)
-                runOnUiThread {
-                    progressBar.progress = i
-                    statusText.text = "جاري التحميل... $i%"
+            try {
+                YoutubeDL.getInstance().init(this)
+
+                val request = YoutubeDLRequest(videoUrl)
+                val downloadPath = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).absolutePath
+
+                request.addOption("-o", "$downloadPath/%(title)s.%(ext)s")
+                request.addOption("-f", getFormat(quality))
+
+                YoutubeDL.getInstance().execute(request) { progress, _, _ ->
+                    runOnUiThread {
+                        progressBar.progress = progress.toInt()
+                        statusText.text = "جاري التحميل... $progress%"
+                    }
                 }
-            }
-            runOnUiThread {
-                statusText.text = "تم التحميل بنجاح!"
-                Toast.makeText(this, "Saved to Downloads!", Toast.LENGTH_SHORT).show()
+
+                runOnUiThread {
+                    statusText.text = "تم التحميل بنجاح!"
+                    Toast.makeText(this, "تم الحفظ في التنزيلات", Toast.LENGTH_LONG).show()
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    statusText.text = "فشل التحميل: ${e.message}"
+                }
             }
         }.start()
     }
 
-    private fun showPlaylistSelectionDialog() {
-        val videos = listOf(
-            "Video 1 - Introduction",
-            "Video 2 - Getting Started", 
-            "Video 3 - Advanced Techniques",
-            "Video 4 - Final Tips"
-        )
-        
-        val checkedItems = BooleanArray(videos.size) { true }
-        
-        androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("Select Videos to Download")
-            .setMultiChoiceItems(videos.toTypedArray(), checkedItems) { _, which, isChecked ->
-                checkedItems[which] = isChecked
-            }
-            .setPositiveButton("Download Selected") { _, _ ->
-                val selectedCount = checkedItems.count { it }
-                Toast.makeText(this, "Downloading $selectedCount videos...", Toast.LENGTH_SHORT).show()
-                // Start download for selected videos
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
+    private fun getFormat(quality: String): String {
+        return when (quality) {
+            "1080p" -> "bestvideo[height<=1080]+bestaudio/best"
+            "720p" -> "bestvideo[height<=720]+bestaudio/best"
+            "480p" -> "bestvideo[height<=480]+bestaudio/best"
+            "صوت فقط" -> "bestaudio"
+            else -> "best"
+        }
     }
 }
